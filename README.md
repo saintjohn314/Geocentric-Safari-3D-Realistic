@@ -21,10 +21,25 @@ Live: https://geocentric-safari-3d.netlify.app
 
 ## Graphics modes
 
-- **Simple (default)** — no WebGL at all, so it runs on any computer. The map is a pre-rendered picture tilted with CSS; the ice wall, gold ring, dome, stars, sun and moon are a few SVG shapes and DOM elements redrawn only when the view or sky changes. Idle CPU use is a few percent.
-- **Full 3D** (Settings → Graphics) — the three.js scene with lighting and ice shards. It renders on demand, lowers its resolution if frames run late, and drops to a Lite mode if the browser has no graphics acceleration.
+- **Realistic 3D (default on computers with graphics acceleration)** - WebGL. The disc is real NASA satellite imagery (Blue Marble, with Black Marble city lights on the night side) in 512px tiles up to 16,384px across, so it stays sharp as you zoom in (up to 180x). Borders and coastlines are GPU lines from Natural Earth 1:50m, crisp at any zoom. Around it: a jagged ice wall, rock strata under the rim, and a glass firmament dome with the real stars, the sun (with its spotlight cone) and the moon (with its real phase) over the places where they're overhead right now. It only draws a frame when something changes, compiles shaders asynchronously, caps its texture cache and lowers its resolution automatically if frames run slow.
+- **Simple** - no WebGL at all. Chosen automatically when the browser has no graphics acceleration, or in Settings.
+- **Boot watchdog** - if a 3D start ever fails to reach the title screen, the next visit starts in Simple mode.
 
-Append `?gfx=simple`, `?gfx=low`, `?gfx=high` or `?gfx=lite` to the URL to force a mode for testing.
+Append `?gfx=simple`, `?gfx=low` or `?gfx=high` to the URL to force a mode for testing.
+
+### Why the old versions froze
+
+The first release installed a service worker that served `js/*.js` cache-first, so returning visitors kept running that release's heavy code (12+ seconds of blocking map painting) under newer pages. Scripts now live in `src/` (URLs the old cache never held), the retired `sw.js` unregisters itself, and graphics choices saved by earlier releases are discarded.
+
+## Rebuilding the map data
+
+```bash
+npm install
+npm run bake:vectors   # countries -> public/data/vectors.bin/.json (+ land rings for the water mask)
+npm run bake:tiles     # NASA imagery -> public/assets/tiles/ and public/assets/aux.webp (needs Python, OpenCV, Pillow)
+```
+
+`bake-tiles.py` lists the NASA source images it expects in `../safari-bake/src/`.
 
 ## Controls
 
@@ -44,7 +59,7 @@ Append `?gfx=simple`, `?gfx=low`, `?gfx=high` or `?gfx=lite` to the URL to force
 public/            ← the whole site (Netlify publishes this folder)
   index.html
   css/style.css
-  js/              ← app.js (game), flatworld.js (Simple mode), world.js (Full 3D, three.js),
+  src/             ← app.js (game), realworld.js (Realistic 3D, three.js), flatworld.js (Simple mode), probe.js,
                      mapPainter.js (D3 map drawing), spots.js (numbered spots), cards.js (lesson cards),
                      astro.js (sun/moon/stars), geo.js (map data + disc maths), sevenseg.js, audio.js, main.js
   assets/          ← pre-rendered disc maps (map-*.webp), cover art, icons
@@ -78,4 +93,4 @@ The Netlify project **geocentric-safari-3d** is already set up. Pick one:
 
 ## Credits
 
-Map data © [Natural Earth](https://www.naturalearthdata.com/) via [world-atlas](https://github.com/topojson/world-atlas). Built with [d3-geo](https://github.com/d3/d3-geo), [topojson](https://github.com/topojson/topojson-client) and, for Full 3D, [three.js](https://threejs.org/). Fonts: Fredoka, VT323, Share Tech Mono (SIL OFL). GeoSafari is a trademark of Educational Insights; this is an unaffiliated fan tribute by JW Games.
+Satellite imagery: NASA Visible Earth (Blue Marble Next Generation, Black Marble 2016), public domain. Map data © [Natural Earth](https://www.naturalearthdata.com/) via [world-atlas](https://github.com/topojson/world-atlas). Built with [d3-geo](https://github.com/d3/d3-geo), [topojson](https://github.com/topojson/topojson-client) and, for Full 3D, [three.js](https://threejs.org/). Fonts: Fredoka, VT323, Share Tech Mono (SIL OFL). GeoSafari is a trademark of Educational Insights; this is an unaffiliated fan tribute by JW Games.

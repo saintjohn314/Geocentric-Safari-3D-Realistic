@@ -928,3 +928,12 @@ kbd {
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
 }
+
+/* Realistic 3D overlays: country names and markers drawn as HTML over the WebGL canvas */
+.rw-overlay { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.rw-labels { position: absolute; inset: 0; }
+.rw-label {
+  position: absolute; left: 0; top: 0; color: #fff; white-space: nowrap; letter-spacing: 0.02em;
+  font: 600 13px "Fredoka Variable", "Fredoka", system-ui, sans-serif;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.95), 0 0 6px rgba(0, 0, 0, 0.7);
+}

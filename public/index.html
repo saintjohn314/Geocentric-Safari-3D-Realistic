@@ -160,7 +160,7 @@
             <li><b>HINT</b> names the place (or circles the area in Map hunt) for half points.</li>
           </ol>
           <div class="keys-help">
-            <span><kbd>Drag</kbd> turn &amp; tilt</span><span><kbd>Scroll</kbd>/<kbd>Pinch</kbd> zoom (up to 24×)</span><span><kbd>Right-drag</kbd>/<kbd>Shift-drag</kbd>/two fingers pan</span>
+            <span><kbd>Drag</kbd> turn &amp; tilt</span><span><kbd>Scroll</kbd>/<kbd>Pinch</kbd> zoom (up to 180×)</span><span><kbd>Right-drag</kbd>/<kbd>Shift-drag</kbd>/two fingers pan</span>
             <span><kbd>+</kbd>/<kbd>−</kbd> zoom</span><span><kbd>A</kbd>/<kbd>D</kbd> turn disc</span><span><kbd>T</kbd> top view</span><span><kbd>V</kbd> 3D view</span>
             <span><kbd>0–9</kbd> keypad</span><span><kbd>Enter</kbd> GO / next</span><span><kbd>H</kbd> hint</span><span><kbd>L</kbd> names</span><span><kbd>Esc</kbd> pause</span>
           </div>
@@ -189,13 +189,13 @@
             <label class="switch"><input type="checkbox" id="set-labels"><span>Show country names on the map</span></label>
             <label class="switch"><input type="checkbox" id="set-daynight"><span>Day &amp; night lighting</span></label>
             <label class="row">Map style
-              <select id="set-style"><option value="terrain">Flat earth map (natural colours)</option><option value="classic">Lesson card map (country colours)</option></select>
+              <select id="set-style"><option value="terrain">Satellite (realistic)</option><option value="classic">Lesson card colours</option></select>
             </label>
             <label class="row">Sky clock
               <select id="set-sky"><option value="live">Live (real time)</option><option value="fast">Fast (a day in 2 minutes)</option><option value="turbo">Turbo (a day in 12 seconds)</option></select>
             </label>
             <label class="row">Graphics
-              <select id="set-quality"><option value="simple">Simple (fastest — works on any computer)</option><option value="low">Full 3D (needs a graphics card)</option><option value="high">Full 3D, high detail</option></select>
+              <select id="set-quality"><option value="auto">Automatic (recommended)</option><option value="low">Realistic 3D</option><option value="high">Realistic 3D, sharpest (strong graphics card)</option><option value="simple">Simple (fastest, for older computers)</option></select>
             </label>
           </div>
           <div class="panel__actions"><button class="btn btn--go" id="btn-settings-done" type="button">Done</button></div>

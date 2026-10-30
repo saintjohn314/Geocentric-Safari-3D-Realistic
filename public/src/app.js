@@ -1,4 +1,5 @@
 import { FlatWorld } from './flatworld.js';
+import { probeGL } from './probe.js';
 import { Geo, distanceKm } from './geo.js';
 import { MapPainter } from './mapPainter.js';
 import { skyAt, sunAltitude } from './astro.js';
@@ -25,10 +26,10 @@ const store = {
 };
 
 const DEFAULTS = {
-  sound: true, voice: false, labels: false, dayNight: true, style: 'terrain', sky: 'live', quality: 'simple',
+  sound: true, voice: false, labels: false, dayNight: true, style: 'terrain', sky: 'live', quality: 'auto',
   card: 'nations', players: 1, mode: 'card', timer: 30, rounds: 10, initials: '',
 };
-const SETTINGS_VERSION = 4;
+const SETTINGS_VERSION = 5;
 const BOOT_KEY = 'gs3d.boot';
 const SKY_SPEED = { live: 1, fast: 720, turbo: 7200 };
 const TRY_POINTS = [100, 60, 30];
@@ -66,7 +67,7 @@ export class App {
       saved.v = SETTINGS_VERSION;
     }
     this.settings = { ...DEFAULTS, ...saved };
-    if (!['simple', 'low', 'high'].includes(this.settings.quality)) this.settings.quality = 'simple';
+    if (!['auto', 'simple', 'low', 'high'].includes(this.settings.quality)) this.settings.quality = 'auto';
     this.sound = new Sound();
     this.sound.muted = !this.settings.sound;
     this.sound.voice = this.settings.voice;
@@ -88,7 +89,8 @@ export class App {
     this.bind();
     this.applySettingsToUI();
 
-    // Simple mode (default) needs no WebGL at all; Full 3D loads three.js only when chosen.
+    // Realistic 3D (WebGL, satellite imagery) on computers with graphics acceleration; Simple mode
+    // (no WebGL at all) otherwise, or when chosen in Settings.
     const engine = this.resolveEngine();
     this.quality = engine;
     try {
@@ -96,17 +98,15 @@ export class App {
         this.world = new FlatWorld($('#viewport'));
       } else {
         $('#loader-text').textContent = 'Starting 3D…';
-        const { World, detectGPU } = await import('./world.js');
-        const gpu = detectGPU();
-        if (!gpu.webgl) throw new Error('WebGL unavailable');
-        this.quality = gpu.software && !this.forcedEngine ? 'lite' : engine;
-        this.world = new World($('#viewport'), { quality: this.quality });
+        const { RealWorld } = await import('./realworld.js');
+        this.world = new RealWorld($('#viewport'), { quality: engine });
+        this.world.onContextLost = () => this.fallBackToSimple('The graphics card stopped responding, so Simple graphics have been switched on.');
+        $('#loader-text').textContent = 'Loading satellite imagery…';
+        await this.world.ready;
       }
     } catch (err) {
       console.error(err);
-      this.settings.quality = 'simple';
-      this.save();
-      this.fail('Full 3D couldn’t start on this device, so Simple mode has been switched back on. Reload the page to play.');
+      this.fallBackToSimple('3D couldn’t start on this device, so Simple graphics have been switched on.');
       return;
     }
     this.world.setView('intro');
@@ -120,7 +120,7 @@ export class App {
     let geo;
     try {
       [geo] = await Promise.all([
-        Geo.load(engine === 'simple' ? 'data/countries-110m.json' : 'data/countries-50m.json'),
+        Geo.load('data/countries-110m.json'),
         document.fonts?.load('600 32px "Fredoka Variable"').catch(() => null),
       ]);
     } catch (err) {
@@ -133,17 +133,12 @@ export class App {
       this.painter = new MapPainter(geo, 0, 1024); // only the highlight overlay is drawn live
       this.world.setDetailPainter((canvas, matrix, scale) => this.paintDetail(canvas, matrix, scale));
       this.world.onOverlayChange = () => this.paintMarks();
-    } else {
-      const maxTex = this.world.renderer.capabilities.maxTextureSize;
-      // 4096px map only on High; 2048px is plenty at normal zoom and 4x cheaper.
-      const size = this.quality === 'lite' ? 1024 : this.quality === 'high' && maxTex >= 4096 ? 4096 : 2048;
-      this.painter = new MapPainter(geo, size, this.quality === 'lite' ? 512 : 1024);
-      $('#loader-text').textContent = 'Painting the map…';
     }
     await this.repaintMap();
-    this.world.setOverlayCanvas(this.painter.overlay);
-    this.painter.paintOverlay([]);
-    this.world.refreshOverlay();
+    if (this.painter) {
+      this.world.setOverlayCanvas(this.painter.overlay);
+      this.painter.paintOverlay([]);
+    }
     this.world.setDayNight(this.settings.dayNight);
     this.world.onFrame((dt) => this.frame(dt));
 
@@ -154,9 +149,24 @@ export class App {
     this.show('title');
     this.bootOk();
     if (this.bootNotice) this.setStrip('Graphics', esc(this.bootNotice));
-    if (this.quality === 'lite') {
-      this.setStrip('Lite mode', 'This browser is drawing 3D without graphics acceleration, so detail is reduced to keep things smooth. Turn on hardware acceleration in your browser settings for the full experience.');
-    }
+    // The detailed (1:50m) countries make hover and taps exact on small islands; fetched once idle.
+    if (engine !== 'simple') setTimeout(() => this.upgradeGeo(), 2500);
+  }
+
+  async upgradeGeo() {
+    if (this.detailGeo) return;
+    this.detailGeo = Geo.load('data/countries-50m.json').then((g) => {
+      this.geo = g;
+      return g;
+    }).catch(() => null);
+  }
+
+  fallBackToSimple(message) {
+    this.settings.quality = 'simple';
+    this.save();
+    store.set(BOOT_KEY, 'ok');
+    this.fail(`${message} Restarting…`);
+    setTimeout(() => location.reload(), 1800);
   }
 
   fail(message) {
@@ -164,20 +174,28 @@ export class App {
     $('.loader__ring')?.remove();
   }
 
-  // 'simple' (default, no WebGL), or Full 3D 'low' / 'high'. ?gfx=simple|low|high|lite forces one for testing.
+  // 'auto' picks Realistic 3D ('low') with graphics acceleration, else Simple. ?gfx=simple|low|high forces one.
   resolveEngine() {
     const forced = new URLSearchParams(location.search).get('gfx');
-    if (['simple', 'high', 'low', 'lite'].includes(forced)) {
+    if (['simple', 'high', 'low'].includes(forced)) {
       this.forcedEngine = true;
       return forced;
     }
-    const wanted = ['high', 'low'].includes(this.settings.quality) ? this.settings.quality : 'simple';
+    let wanted = ['simple', 'high', 'low'].includes(this.settings.quality) ? this.settings.quality : 'auto';
+    if (wanted === 'auto') {
+      const gl = probeGL();
+      if (!gl.ok || gl.software) {
+        if (gl.software) this.bootNotice = 'This browser is drawing without graphics acceleration, so Simple graphics are on. Turn on hardware acceleration in your browser settings to see the realistic 3D disc.';
+        return 'simple';
+      }
+      wanted = 'low';
+    }
     // Boot watchdog: a 3D start that never reached the title screen (froze, crashed or was closed)
     // leaves this flag behind, and the next visit starts in Simple mode instead.
-    if (wanted !== 'simple' && store.get(BOOT_KEY, null) === `pending-${wanted}`) {
+    if (wanted !== 'simple' && String(store.get(BOOT_KEY, '')).startsWith('pending')) {
       this.settings.quality = 'simple';
       this.save();
-      this.bootNotice = 'The last 3D start didn’t finish, so the game has switched back to Simple graphics. You can try 3D again in Settings.';
+      this.bootNotice = 'The last 3D start didn’t finish, so the game has switched to Simple graphics. You can try 3D again in Settings.';
       store.set(BOOT_KEY, 'ok');
       return 'simple';
     }
@@ -562,7 +580,7 @@ export class App {
     this.world?.setStarAlpha(1);
     this.world?.setDomeAlpha(1);
     this.marks = [];
-    if (this.painter) this.paintMarks();
+    if (this.painter || this.world?.setMarks) this.paintMarks();
     this.el.next.hidden = true;
     this.el.stage.classList.remove('is-hunting');
     $('#disp-p1').classList.remove('is-turn');
@@ -937,6 +955,10 @@ export class App {
   paintMarks() {
     const items = [...this.marks];
     if (this.hoverFeature && !this.hoverFeature.properties.isIce) items.push({ feature: this.hoverFeature, fill: 'rgba(255,240,140,0.5)', stroke: 'rgba(255,170,0,0.95)', width: 4 });
+    if (this.world.setMarks) {
+      this.world.setMarks(items);
+      return;
+    }
     this.painter.paintOverlay(items, this.world.overlayTarget);
     this.world.refreshOverlay();
   }
@@ -1052,6 +1074,10 @@ export class App {
   }
 
   async repaintMap() {
+    if (this.world.setStyle) {
+      this.world.setStyle({ style: this.settings.style, labels: this.settings.labels });
+      return;
+    }
     if (!this.painter) return;
     if (this.world.setMapImage) {
       this.world.setMapImage(`assets/map-${this.settings.style === 'terrain' ? 'terrain' : 'classic'}${this.settings.labels ? '-labels' : ''}.webp`);
