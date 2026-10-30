@@ -28,6 +28,8 @@ const DEFAULTS = {
   sound: true, voice: false, labels: false, dayNight: true, style: 'terrain', sky: 'live', quality: 'simple',
   card: 'nations', players: 1, mode: 'card', timer: 30, rounds: 10, initials: '',
 };
+const SETTINGS_VERSION = 4;
+const BOOT_KEY = 'gs3d.boot';
 const SKY_SPEED = { live: 1, fast: 720, turbo: 7200 };
 const TRY_POINTS = [100, 60, 30];
 const CARD_ICONS = { nations: '🗺️', capitals: '🏛️', wonders: '🗿', peaks: '🏔️', waters: '🌊', islands: '🏝️', extremes: '🧭' };
@@ -56,7 +58,14 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&
 
 export class App {
   constructor() {
-    this.settings = { ...DEFAULTS, ...store.get('gs3d.settings', {}) };
+    const saved = store.get('gs3d.settings', {}) || {};
+    // Earlier releases could store a heavy graphics mode (even switching to it automatically). Those
+    // stored choices are dropped so every browser starts again on the safe default.
+    if (saved.v !== SETTINGS_VERSION) {
+      delete saved.quality;
+      saved.v = SETTINGS_VERSION;
+    }
+    this.settings = { ...DEFAULTS, ...saved };
     if (!['simple', 'low', 'high'].includes(this.settings.quality)) this.settings.quality = 'simple';
     this.sound = new Sound();
     this.sound.muted = !this.settings.sound;
@@ -143,6 +152,8 @@ export class App {
     this.idleDisplays();
     this.view = 'title';
     this.show('title');
+    this.bootOk();
+    if (this.bootNotice) this.setStrip('Graphics', esc(this.bootNotice));
     if (this.quality === 'lite') {
       this.setStrip('Lite mode', 'This browser is drawing 3D without graphics acceleration, so detail is reduced to keep things smooth. Turn on hardware acceleration in your browser settings for the full experience.');
     }
@@ -160,7 +171,28 @@ export class App {
       this.forcedEngine = true;
       return forced;
     }
-    return ['high', 'low'].includes(this.settings.quality) ? this.settings.quality : 'simple';
+    const wanted = ['high', 'low'].includes(this.settings.quality) ? this.settings.quality : 'simple';
+    // Boot watchdog: a 3D start that never reached the title screen (froze, crashed or was closed)
+    // leaves this flag behind, and the next visit starts in Simple mode instead.
+    if (wanted !== 'simple' && store.get(BOOT_KEY, null) === `pending-${wanted}`) {
+      this.settings.quality = 'simple';
+      this.save();
+      this.bootNotice = 'The last 3D start didn’t finish, so the game has switched back to Simple graphics. You can try 3D again in Settings.';
+      store.set(BOOT_KEY, 'ok');
+      return 'simple';
+    }
+    if (wanted !== 'simple') store.set(BOOT_KEY, `pending-${wanted}`);
+    return wanted;
+  }
+
+  // Called once the game has drawn a few frames: the start-up succeeded.
+  bootOk() {
+    let frames = 0;
+    const tick = () => {
+      if (++frames < 30) requestAnimationFrame(tick);
+      else store.set(BOOT_KEY, 'ok');
+    };
+    requestAnimationFrame(tick);
   }
 
   // ---------------- DOM ----------------
@@ -496,6 +528,7 @@ export class App {
     };
     this.paused = false;
     this.view = 'play';
+    this.el.tooltip.hidden = true;
     this.show(null);
     this.loadSlot(card);
     this.setLamps(opts.rounds);
